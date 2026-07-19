@@ -1,48 +1,34 @@
 'use strict';
 
-let Service;
-let Characteristic;
-let CBusAccessory;
-let uuid;
-
+const CBusAccessory = require('./accessory.js');
 const cbusUtils = require('../lib/cbus-utils.js');
 
 const FILE_ID = cbusUtils.extractIdentifierFromFileName(__filename);
 
-module.exports = function (_service, _characteristic, _accessory, _uuid) {
-	Service = _service;
-	Characteristic = _characteristic;
-	CBusAccessory = _accessory;
-	uuid = _uuid;
+class CBusSmokeAccessory extends CBusAccessory {
+	constructor(platform, accessoryData, existingPlatformAccessory) {
+		super(platform, accessoryData, existingPlatformAccessory);
 
-	return CBusSmokeAccessory;
-};
+		// register on-off service
+		this.service = this.getService(this.hap.Service.SmokeSensor) ||
+			this.addService(this.hap.Service.SmokeSensor, this.name);
 
-function CBusSmokeAccessory(platform, accessoryData) {
-	//--------------------------------------------------
-	// initialize parent
-	CBusAccessory.call(this, platform, accessoryData);
-
-	//--------------------------------------------------
-	// register on-off service
-    this.service = this.addService(new Service.SmokeSensor(this.name));
-    this.service.getCharacteristic(Characteristic.SmokeDetected)
-        .on('get', this.getMotionState.bind(this));
-    
-    }
-
-CBusSmokeAccessory.prototype.getMotionState = function (callback) {
-	this.client.receiveLevel(this.netId, message => {
-		this._log(FILE_ID, `getState`, message.level);
-		callback(false, /* state: */ message.level ? 1 : 0);
-	});
-};
-
-CBusSmokeAccessory.prototype.processClientData = function (err, message) {
-	if (!err) {
-        const level = message.level;
-        this.service.getCharacteristic(Characteristic.SmokeDetected)
-            .setValue((level > 0) ? 1 : 0);
-
+		this.service.getCharacteristic(this.hap.Characteristic.SmokeDetected)
+			.onGet(this.getMotionState.bind(this));
 	}
-};
+
+	async getMotionState() {
+		const message = await new Promise(resolve => this.client.receiveLevel(this.netId, resolve));
+		this._log(FILE_ID, `getState`, message.level);
+		return message.level > 0;
+	}
+
+	processClientData(err, message) {
+		if (!err) {
+			this.service.getCharacteristic(this.hap.Characteristic.SmokeDetected)
+				.updateValue(message.level > 0);
+		}
+	}
+}
+
+module.exports = CBusSmokeAccessory;

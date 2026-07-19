@@ -1,89 +1,67 @@
 'use strict';
 
-let Service;
-let Characteristic;
-let CBusAccessory;
-let uuid;
-
-const chalk = require('chalk');
-
+const CBusAccessory = require('./accessory.js');
 const cbusUtils = require('../lib/cbus-utils.js');
 
 const FILE_ID = cbusUtils.extractIdentifierFromFileName(__filename);
 
-module.exports = function (_service, _characteristic, _accessory, _uuid) {
-	Service = _service;
-	Characteristic = _characteristic;
-	CBusAccessory = _accessory;
-	uuid = _uuid;
+class CBusLightAccessory extends CBusAccessory {
+	constructor(platform, accessoryData, existingPlatformAccessory) {
+		super(platform, accessoryData, existingPlatformAccessory);
 
-	return CBusLightAccessory;
-};
+		// keep track of state
+		this.isOn = false;
+		this.brightness = 100;
+		this.rampDuration = 0; // duration in ms
 
-function CBusLightAccessory(platform, accessoryData) {
-	//--------------------------------------------------
-	// initialize  parent
-	CBusAccessory.call(this, platform, accessoryData);
+		// register on-off service
+		this.service = this.getService(this.hap.Service.Lightbulb) ||
+			this.addService(this.hap.Service.Lightbulb, this.name);
 
-	//--------------------------------------------------
-	// keep track of state
-	// TODO do we need to prime this?
-	this.isOn = false;
-	this.brightness = 100;
-	this.rampDuration = 0;		// duration in ms
+		this.onCharacteristic = this.service.getCharacteristic(this.hap.Characteristic.On);
 
-	//--------------------------------------------------
-	// register on-off service
-	this.service = this.addService(new Service.Lightbulb(this.name));
+		this.onCharacteristic
+			.onGet(this.getOn.bind(this))
+			.onSet(this.setOn.bind(this));
+	}
 
-	this.onC10tic = this.service.getCharacteristic(Characteristic.On);
-
-	this.onC10tic
-		.on('get', this.getOn.bind(this))
-		.on('set', this.setOn.bind(this));
-}
-
-CBusLightAccessory.prototype.getOn = function (callback) {
-	this.client.receiveLevel(this.netId, message => {
-		this.isOn = (message.level > 0);
+	async getOn() {
+		const message = await new Promise(resolve => this.client.receiveLevel(this.netId, resolve, `getOn`));
+		this.isOn = message.level > 0;
 		this._log(FILE_ID, `getOn`, `receiveLevel returned ${message.level}`);
-		callback(false, this.isOn ? 1 : 0);
-	}, `getOn`);
-};
+		return this.isOn;
+	}
 
-CBusLightAccessory.prototype.setOn = function (turnOn, callback, context) {
-	// delay by a fraction of a second to give any superclass (nb. there may not be one) a chance to work first
-	setTimeout(() => {
-		// it appears that Siri uses true/false but the Home app uses 1/0 -- odd!
+	async setOn(turnOn) {
+		// delay by a fraction of a second to give any subclass (nb. there may not be one) a chance to work first
+		await cbusUtils.delay(50);
+
 		console.assert((turnOn === 1) || (turnOn === 0) || (turnOn === true) || (turnOn === false));
 		const wasOn = this.isOn;
 		this.isOn = (turnOn === 1) || (turnOn === true);
 
-		if (context === `event`) {
-			// context helps us avoid a never-ending loop
-			callback();
-		} else {
-			if (this.isOn === wasOn) {
-				this._log(FILE_ID, `setOn`, `no state change from ${wasOn}`);
-				callback();
-			} else {
-				const newLevel = turnOn ? this.brightness : 0;
-				const reasonExtension = turnOn ? ((this.brightness === 100) ? `on` : `restore`) : `off`;
-
-				this._log(FILE_ID, `setOn`, `changing level to ${newLevel}%`);
-				this.client.setLevel(this.netId, newLevel, () => {
-					callback();
-				}, this.rampDuration / 1000, `setOn (${reasonExtension})`);
-			}
+		if (this.isOn === wasOn) {
+			this._log(FILE_ID, `setOn`, `no state change from ${wasOn}`);
+			return;
 		}
-	}, 50);
-};
 
-CBusLightAccessory.prototype.processClientData = function (err, message) {
-	if (!err) {
-		console.assert(typeof message.level !== `undefined`, `message.level must not be undefined`);
-		const level = message.level;
+		const newLevel = turnOn ? this.brightness : 0;
+		const reasonExtension = turnOn ? ((this.brightness === 100) ? `on` : `restore`) : `off`;
 
-		this.onC10tic.setValue((level > 0) ? 1 : 0, undefined, `event`);
+		this._log(FILE_ID, `setOn`, `changing level to ${newLevel}%`);
+		await new Promise(resolve => this.client.setLevel(
+			this.netId, newLevel, resolve, this.rampDuration / 1000, `setOn (${reasonExtension})`));
 	}
-};
+
+	// received an event over the network -- could have been in response to one of our
+	// commands, or someone else. updateValue() pushes the new state to HomeKit without
+	// re-triggering setOn(), so there's no need for the old context==='event' loop guard.
+	processClientData(err, message) {
+		if (!err) {
+			console.assert(typeof message.level !== `undefined`, `message.level must not be undefined`);
+			this.onCharacteristic.updateValue(message.level > 0);
+		}
+	}
+}
+
+module.exports = CBusLightAccessory;
