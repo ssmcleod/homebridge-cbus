@@ -3,7 +3,8 @@
   "version": "1.2.0",
   "description": "CBus Platform plugin for homebridge",
   "license": "MIT",
-  "homepage": "http://github.com/anthonywebb/homebridge-cbus/",
+  "author": "ssmcleod",
+  "homepage": "https://github.com/ssmcleod/homebridge-cbus/",
   "keywords": [
     "homebridge-plugin",
     "homebridge",
@@ -19,10 +20,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git://github.com/anthonywebb/homebridge-cbus.git"
+    "url": "git+https://github.com/ssmcleod/homebridge-cbus.git"
   },
   "bugs": {
-    "url": "http://github.com/anthonywebb/homebridge-cbus/issues"
+    "url": "https://github.com/ssmcleod/homebridge-cbus/issues"
   },
   "engines": {
     "node": "^18.15.0 || ^20.7.0 || ^22 || ^24",
